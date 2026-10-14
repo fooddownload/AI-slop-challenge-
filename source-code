@@ -1,0 +1,1074 @@
+#THIS IS A FANDMADE IRON MAN GAME I DO NOT KNOW ANY CHARCTERS
+#This is under GNU GPL license.
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iron Man: Armored Flight Command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap');
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: #030712;
+            color: #e5e7eb;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .font-hud {
+            font-family: 'Orbitron', monospace;
+        }
+
+        /* Glassmorphic HUD elements */
+        .hud-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15), inset 0 0 10px rgba(56, 189, 248, 0.05);
+        }
+
+        .hud-border-cyan {
+            border-color: rgba(6, 182, 212, 0.5);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* Custom scrollbar for log */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.5);
+            border-radius: 2px;
+        }
+
+        /* Crosshair animation */
+        @keyframes reticle-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-reticle {
+            animation: reticle-spin 12s linear infinite;
+        }
+
+        /* Flash animations */
+        @keyframes flash-red {
+            0% { background-color: rgba(239, 68, 68, 0.4); }
+            100% { background-color: transparent; }
+        }
+        .damage-flash {
+            animation: flash-red 0.3s ease-out;
+        }
+
+        @keyframes flash-blue {
+            0% { background-color: rgba(14, 165, 233, 0.4); }
+            100% { background-color: transparent; }
+        }
+        .repulsor-flash {
+            animation: flash-blue 0.15s ease-out;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen relative overflow-hidden select-none bg-slate-950">
+
+    <canvas id="game-canvas" class="absolute inset-0 w-full h-full z-0 cursor-crosshair"></canvas>
+
+    <div id="flash-overlay" class="absolute inset-0 pointer-events-none z-10"></div>
+    <div class="scanlines absolute inset-0 z-10"></div>
+
+    <div id="hud-layer" class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-4 md:p-6">
+        
+        <!-- Top HUD Header -->
+        <div class="flex justify-between items-start">
+            <!-- Left Stats: Health & Power Arc Reactor -->
+            <div class="hud-panel p-4 rounded-xl max-w-xs sm:max-w-sm w-full pointer-events-auto border-l-4 border-l-cyan-500">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="font-hud text-xs tracking-widest text-cyan-400 font-semibold flex items-center gap-2">
+                        <i class="fa-solid fa-microchip animate-pulse"></i> ARC REACTOR CORE
+                    </span>
+                    <span id="suit-name-tag" class="text-xs font-hud text-amber-400">MK VIII</span>
+                </div>
+                
+                <!-- Hull Health Bar -->
+                <div class="mb-3">
+                    <div class="flex justify-between text-xs mb-1 font-hud">
+                        <span class="text-slate-400">ARMOR INTEGRITY</span>
+                        <span id="health-val" class="text-cyan-300 font-bold">100%</span>
+                    </div>
+                    <div class="w-full h-2.5 bg-slate-900/80 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                        <div id="health-bar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-600 rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(6,182,212,0.8)]" style="width: 100%;"></div>
+                    </div>
+                </div>
+
+                <!-- Energy / Power Core Level -->
+                <div>
+                    <div class="flex justify-between text-xs mb-1 font-hud">
+                        <span class="text-slate-400">RESERVE ENERGY</span>
+                        <span id="power-val" class="text-amber-400 font-bold">100%</span>
+                    </div>
+                    <div class="w-full h-2 bg-slate-900/80 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                        <div id="power-bar" class="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all duration-200 shadow-[0_0_8px_rgba(245,158,11,0.8)]" style="width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Central HUD Reticle Overlay (Flight Target) -->
+            <div class="hidden md:flex flex-col items-center justify-center pt-2">
+                <div class="relative w-24 h-24 flex items-center justify-center">
+                    <div class="absolute inset-0 border border-cyan-500/30 rounded-full animate-reticle"></div>
+                    <div class="absolute inset-2 border border-dashed border-cyan-400/40 rounded-full"></div>
+                    <div class="w-2 h-2 bg-cyan-400 rounded-full shadow-[0_0_8px_#22d3ee]"></div>
+                </div>
+                <span class="font-hud text-[10px] tracking-widest text-cyan-400/70 mt-1">FLIGHT VECTOR OPTIMAL</span>
+            </div>
+
+            <!-- Right Stats: Score & Repulsor Charge -->
+            <div class="hud-panel p-4 rounded-xl max-w-xs sm:max-w-sm w-full pointer-events-auto border-r-4 border-r-cyan-500 text-right">
+                <div class="text-xs font-hud text-slate-400 tracking-wider">DISTANCE TRAVELED</div>
+                <div id="score-val" class="font-hud text-2xl md:text-3xl font-black text-white tracking-widest my-0.5">0000 m</div>
+                
+                <div class="mt-2 flex items-center justify-end gap-3">
+                    <div class="text-right">
+                        <div class="text-[10px] font-hud text-slate-400">REPULSOR CAPACITOR</div>
+                        <div id="repulsor-status" class="text-xs font-hud text-cyan-400 font-bold">READY</div>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-slate-900/90 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.3)]">
+                        <i class="fa-solid fa-hand-back-fist text-lg"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Aim Crosshair for Mouse Targeting -->
+        <div id="crosshair" class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-transform duration-75">
+            <div class="w-8 h-8 relative flex items-center justify-center">
+                <div class="absolute inset-0 border border-cyan-400/60 rounded-full"></div>
+                <div class="w-1 h-3 bg-cyan-400/80 absolute -top-1"></div>
+                <div class="w-1 h-3 bg-cyan-400/80 absolute -bottom-1"></div>
+                <div class="h-1 w-3 bg-cyan-400/80 absolute -left-1"></div>
+                <div class="h-1 w-3 bg-cyan-400/80 absolute -right-1"></div>
+                <div class="w-1.5 h-1.5 bg-amber-400 rounded-full shadow-[0_0_6px_#f59e0b]"></div>
+            </div>
+        </div>
+
+        <!-- Bottom HUD Row: JARVIS Log & Mobile Controls -->
+        <div class="flex justify-between items-end gap-4">
+            <!-- JARVIS AI Log Console -->
+            <div class="hud-panel p-3 rounded-xl max-w-sm md:max-w-md w-full pointer-events-auto hidden sm:block">
+                <div class="flex items-center gap-2 mb-1 border-b border-slate-700/50 pb-1">
+                    <div class="w-2 h-2 bg-cyan-400 rounded-full animate-ping"></div>
+                    <span class="font-hud text-xs text-cyan-400 font-bold tracking-wider">J.A.R.V.I.S. TACTICAL FEED</span>
+                </div>
+                <div id="jarvis-log" class="text-xs text-slate-300 font-mono h-14 overflow-y-auto space-y-1 flex flex-col-reverse">
+                    <div class="text-cyan-400/90">> Systems online. Welcome back, Sir. All thrusters Nominal.</div>
+                </div>
+            </div>
+
+            <!-- Controls Prompt / Mobile Touch Hint -->
+            <div class="hud-panel p-3 rounded-xl pointer-events-auto flex items-center gap-4 text-xs font-hud text-slate-300">
+                <div class="hidden md:flex items-center gap-3">
+                    <span class="px-2 py-1 bg-slate-800 rounded border border-slate-700 text-cyan-400">Mouse / Drag</span> <span class="text-slate-400">Steer Suit</span>
+                    <span class="px-2 py-1 bg-slate-800 rounded border border-slate-700 text-cyan-400">Left Click / Space</span> <span class="text-slate-400">Repulsors</span>
+                </div>
+                <button id="pause-btn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-600 text-cyan-300 transition-colors">
+                    <i class="fa-solid fa-pause"></i> PAUSE
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="start-screen" class="absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+        <div class="max-w-xl w-full hud-panel p-6 md:p-8 rounded-2xl border border-cyan-500/40 shadow-[0_0_40px_rgba(6,182,212,0.2)] text-center relative overflow-hidden">
+            
+            <div class="absolute -right-12 -top-12 w-40 h-40 bg-cyan-500/10 rounded-full blur-2xl"></div>
+            <div class="absolute -left-12 -bottom-12 w-40 h-40 bg-amber-500/10 rounded-full blur-2xl"></div>
+
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 text-xs font-hud mb-4">
+                <i class="fa-solid fa-shield-halved"></i> STARK INDUSTRIES TACTICAL SUITE
+            </div>
+
+            <h1 class="font-hud text-3xl md:text-5xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-200 to-amber-300 mb-2">
+                IRON MAN
+            </h1>
+            <p class="text-slate-400 text-sm mb-6">ARMORED FLIGHT COMMAND & INFRASTRUCTURE OVERRIDE</p>
+
+            <!-- Armor Customization Carousel / Selector -->
+            <div class="mb-6">
+                <div class="text-xs font-hud text-slate-300 tracking-wider mb-3 text-left flex items-center gap-2">
+                    <i class="fa-solid fa-palette text-amber-400"></i> SELECT ARMOR CONFIGURATION
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    
+                    <button onclick="selectTheme('mk8')" class="theme-card p-3 rounded-xl border border-amber-500/40 bg-slate-900/80 hover:bg-slate-800 text-left transition-all group active-theme" data-theme="mk8">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="w-3 h-3 rounded-full bg-red-600 shadow-[0_0_6px_#dc2626]"></span>
+                            <span class="font-hud text-xs text-white group-hover:text-amber-300 font-bold">MK VIII</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">Classic Crimson & Gold</div>
+                    </button>
+
+                    <button onclick="selectTheme('tokyo')" class="theme-card p-3 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-left transition-all group" data-theme="tokyo">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="w-3 h-3 rounded-full bg-purple-500 shadow-[0_0_6px_#a855f7]"></span>
+                            <span class="font-hud text-xs text-white group-hover:text-purple-300 font-bold">TOKYO NIGHT</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">Neon Purple & Magenta</div>
+                    </button>
+
+                    <button onclick="selectTheme('nord')" class="theme-card p-3 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-left transition-all group" data-theme="nord">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="w-3 h-3 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
+                            <span class="font-hud text-xs text-white group-hover:text-sky-300 font-bold">NORD</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">Glacier Frost & Blue Slate</div>
+                    </button>
+
+                    <button onclick="selectTheme('osaka')" class="theme-card p-3 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-left transition-all group" data-theme="osaka">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981]"></span>
+                            <span class="font-hud text-xs text-white group-hover:text-emerald-300 font-bold">OSAKA JADE</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">Deep Emerald & Gold</div>
+                    </button>
+
+                    <button onclick="selectTheme('everforest')" class="theme-card p-3 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-left transition-all group" data-theme="everforest">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="w-3 h-3 rounded-full bg-lime-600 shadow-[0_0_6px_#65a30d]"></span>
+                            <span class="font-hud text-xs text-white group-hover:text-lime-300 font-bold">EVERFOREST</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">Muted Pine & Warm Bark</div>
+                    </button>
+
+                    <button onclick="selectTheme('classic')" class="theme-card p-3 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-left transition-all group" data-theme="classic">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="w-3 h-3 rounded-full bg-slate-300 shadow-[0_0_6px_#cbd5e1]"></span>
+                            <span class="font-hud text-xs text-white group-hover:text-slate-200 font-bold">MARK I SILVER</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">Raw Machined Steel</div>
+                    </button>
+
+                </div>
+            </div>
+
+            <!-- Launch Mission Button -->
+            <button id="start-btn" class="w-full py-4 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-hud font-extrabold tracking-widest text-lg shadow-[0_0_25px_rgba(6,182,212,0.5)] transition-all transform hover:scale-[1.02] active:scale-[0.98]">
+                <i class="fa-solid fa-jet-fighter-up mr-2"></i> INITIALIZE FLIGHT PROTOCOL
+            </button>
+        </div>
+    </div>
+
+    <div id="game-over-screen" class="absolute inset-0 z-30 hidden flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+        <div class="max-w-md w-full hud-panel p-6 md:p-8 rounded-2xl border border-red-500/50 shadow-[0_0_40px_rgba(239,68,68,0.25)] text-center">
+            
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/80 border border-red-500/40 text-red-400 text-xs font-hud mb-4">
+                <i class="fa-solid fa-triangle-exclamation"></i> CRITICAL SYSTEM BREACH
+            </div>
+
+            <h2 class="font-hud text-3xl font-black tracking-widest text-red-500 mb-2">MISSION FAILED</h2>
+            <p class="text-slate-400 text-sm mb-6">ARMOR HULL INTEGRITY DEFEATED</p>
+
+            <div class="hud-panel p-4 rounded-xl mb-6 text-left space-y-2 font-hud text-sm">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">FINAL DISTANCE:</span>
+                    <span id="final-score" class="text-white font-bold">0 m</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">CORES COLLECTED:</span>
+                    <span id="final-cores" class="text-amber-400 font-bold">0</span>
+                </div>
+            </div>
+
+            <button id="restart-btn" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-hud font-bold tracking-widest text-md shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all">
+                <i class="fa-solid fa-rotate-right mr-2"></i> RE-ENGAGE CORE SYSTEMS
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playRepulsorSound() {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.12);
+                osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.35);
+
+                gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.35);
+            } catch(e) {}
+        }
+
+        function playExplosionSound() {
+            if (!audioCtx) return;
+            try {
+                const bufferSize = audioCtx.sampleRate * 0.4;
+                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, audioCtx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.4);
+
+                const gain = audioCtx.createGain();
+                gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                noise.start();
+            } catch(e) {}
+        }
+
+        function playCoreCollectSound() {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.08); // E5
+                osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.16); // G5
+
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch(e) {}
+        }
+
+        const SUIT_THEMES = {
+            mk8: {
+                name: 'MARK VIII',
+                primary: 0x991b1b, // Crimson
+                secondary: 0xf59e0b, // Gold
+                glow: 0x06b6d4, // Cyan Arc Glow
+                cityDark: 0x0f172a,
+                cityLight: 0x1e293b
+            },
+            tokyo: {
+                name: 'TOKYO NIGHT',
+                primary: 0x581c87, // Deep Purple
+                secondary: 0xec4899, // Neon Pink
+                glow: 0x38bdf8, // Cyan
+                cityDark: 0x090514,
+                cityLight: 0x1e1035
+            },
+            nord: {
+                name: 'NORD',
+                primary: 0x0284c7, // Frost Blue
+                secondary: 0xe2e8f0, // Ice White
+                glow: 0x38bdf8,
+                cityDark: 0x0b1320,
+                cityLight: 0x172554
+            },
+            osaka: {
+                name: 'OSAKA JADE',
+                primary: 0x065f46, // Deep Jade
+                secondary: 0xf59e0b, // Gold Accent
+                glow: 0x34d399, // Mint Glow
+                cityDark: 0x022c22,
+                cityLight: 0x064e3b
+            },
+            everforest: {
+                name: 'EVERFOREST',
+                primary: 0x3f6212, // Moss Green
+                secondary: 0x78350f, // Timber Brown
+                glow: 0xa3e635, // Lime Glow
+                cityDark: 0x142312,
+                cityLight: 0x1a2e18
+            },
+            classic: {
+                name: 'MARK I SILVER',
+                primary: 0x64748b, // Machined Steel
+                secondary: 0x94a3b8, // Bright Silver
+                glow: 0x38bdf8, // Ice Arc
+                cityDark: 0x0f172a,
+                cityLight: 0x334155
+            }
+        };
+
+        let currentThemeKey = 'mk8';
+
+        let scene, camera, renderer;
+        let ironManSuit, suitBodyGroup, handRepulsors = [];
+        let buildings = [];
+        let obstacles = [];
+        let energyCores = [];
+        let projectiles = [];
+        let particleSystems = [];
+        let speedLinesGroup;
+
+        let gameActive = false;
+        let isPaused = false;
+        let health = 100;
+        let powerEnergy = 100;
+        let distanceScore = 0;
+        let coresCollected = 0;
+        let repulsorCooldown = 0;
+
+        // Player target positions (Smooth movement)
+        let mouseX = 0, mouseY = 0;
+        let targetX = 0, targetY = 0;
+        const FLIGHT_BOUNDS_X = 14;
+        const FLIGHT_BOUNDS_Y = 8;
+        const GAME_SPEED = 1.4;
+
+        function logJarvis(message, color = 'text-cyan-400') {
+            const logContainer = document.getElementById('jarvis-log');
+            if (!logContainer) return;
+            const entry = document.createElement('div');
+            entry.className = `${color} text-[11px] font-mono`;
+            entry.innerHTML = `> ${message}`;
+            logContainer.prepend(entry);
+
+            if (logContainer.children.length > 8) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+
+        function initThreeJS() {
+            const container = document.getElementById('game-canvas');
+            
+            // Scene Setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x030712, 0.012);
+
+            // Camera Setup
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 3, 10);
+
+            // Renderer Setup
+            renderer = new THREE.WebGLRenderer({ canvas: container, antialias: true, alpha: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+
+            // Lighting Setup
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(10, 30, 20);
+            scene.add(dirLight);
+
+            // Create Player Iron Man Suit
+            createIronManSuit();
+
+            // Build Initial Environment (City Canyon)
+            buildCityEnvironment();
+
+            // Create Speed Lines Effect
+            createSpeedLines();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('touchmove', onTouchMove, { passive: true });
+            window.addEventListener('mousedown', fireRepulsor);
+            window.addEventListener('keydown', (e) => {
+                if (e.code === 'Space') fireRepulsor();
+            });
+
+            document.getElementById('start-btn').addEventListener('click', startGame);
+            document.getElementById('restart-btn').addEventListener('click', restartGame);
+            document.getElementById('pause-btn').addEventListener('click', togglePause);
+
+            // Animation Loop Start
+            animate();
+        }
+
+        function createIronManSuit() {
+            suitBodyGroup = new THREE.Group();
+            const theme = SUIT_THEMES[currentThemeKey];
+
+            const mainMat = new THREE.MeshStandardMaterial({
+                color: theme.primary,
+                roughness: 0.2,
+                metalness: 0.8
+            });
+
+            const accentMat = new THREE.MeshStandardMaterial({
+                color: theme.secondary,
+                roughness: 0.2,
+                metalness: 0.9
+            });
+
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: theme.glow
+            });
+
+            // Torso
+            const chestGeo = new THREE.BoxGeometry(1.2, 1.6, 0.8);
+            const chest = new THREE.Mesh(chestGeo, mainMat);
+            chest.position.y = 0.8;
+            suitBodyGroup.add(chest);
+
+            // Arc Reactor (Chest Core)
+            const arcGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.1, 16);
+            arcGeo.rotateX(Math.PI / 2);
+            const arcReactor = new THREE.Mesh(arcGeo, glowMat);
+            arcReactor.position.set(0, 1.0, 0.42);
+            suitBodyGroup.add(arcReactor);
+
+            // Head / Helmet
+            const headGeo = new THREE.BoxGeometry(0.7, 0.8, 0.7);
+            const head = new THREE.Mesh(headGeo, mainMat);
+            head.position.y = 2.0;
+
+            // Faceplate
+            const faceGeo = new THREE.BoxGeometry(0.55, 0.65, 0.1);
+            const faceplate = new THREE.Mesh(faceGeo, accentMat);
+            faceplate.position.set(0, 2.0, 0.35);
+            suitBodyGroup.add(head);
+            suitBodyGroup.add(faceplate);
+
+            // Eyes Glow
+            const eyeGeo = new THREE.BoxGeometry(0.4, 0.08, 0.05);
+            const eyes = new THREE.Mesh(eyeGeo, glowMat);
+            eyes.position.set(0, 2.1, 0.38);
+            suitBodyGroup.add(eyes);
+
+            // Shoulders & Arms
+            const shoulderGeo = new THREE.SphereGeometry(0.4, 16, 16);
+            const leftShoulder = new THREE.Mesh(shoulderGeo, accentMat);
+            leftShoulder.position.set(-0.9, 1.3, 0);
+            const rightShoulder = new THREE.Mesh(shoulderGeo, accentMat);
+            rightShoulder.position.set(0.9, 1.3, 0);
+            suitBodyGroup.add(leftShoulder);
+            suitBodyGroup.add(rightShoulder);
+
+            // Repulsor Palms Glow
+            handRepulsors = [];
+            const repulsorGeo = new THREE.SphereGeometry(0.12, 12, 12);
+            const leftRepulsor = new THREE.Mesh(repulsorGeo, glowMat);
+            leftRepulsor.position.set(-1.0, 0.5, 0.6);
+            const rightRepulsor = new THREE.Mesh(repulsorGeo, glowMat);
+            rightRepulsor.position.set(1.0, 0.5, 0.6);
+            suitBodyGroup.add(leftRepulsor);
+            suitBodyGroup.add(rightRepulsor);
+            handRepulsors.push(leftRepulsor, rightRepulsor);
+
+            // Legs / Thrusters
+            const legGeo = new THREE.CylinderGeometry(0.25, 0.2, 1.4, 12);
+            const leftLeg = new THREE.Mesh(legGeo, mainMat);
+            leftLeg.position.set(-0.35, -0.6, 0);
+            const rightLeg = new THREE.Mesh(legGeo, mainMat);
+            rightLeg.position.set(0.35, -0.6, 0);
+            suitBodyGroup.add(leftLeg);
+            suitBodyGroup.add(rightLeg);
+
+            // Boot Thrusters Glow
+            const bootGeo = new THREE.CylinderGeometry(0.15, 0.05, 0.2, 12);
+            const bootGlow1 = new THREE.Mesh(bootGeo, glowMat);
+            bootGlow1.position.set(-0.35, -1.35, 0);
+            const bootGlow2 = new THREE.Mesh(bootGeo, glowMat);
+            bootGlow2.position.set(0.35, -1.35, 0);
+            suitBodyGroup.add(bootGlow1);
+            suitBodyGroup.add(bootGlow2);
+
+            // Scale & Position Whole Suit
+            suitBodyGroup.scale.set(0.9, 0.9, 0.9);
+            suitBodyGroup.position.set(0, -1, 4);
+            ironManSuit = suitBodyGroup;
+            scene.add(ironManSuit);
+        }
+
+        function selectTheme(key) {
+            if (!SUIT_THEMES[key]) return;
+            currentThemeKey = key;
+            document.querySelectorAll('.theme-card').forEach(card => {
+                if (card.dataset.theme === key) {
+                    card.classList.add('border-amber-500/80', 'bg-slate-800', 'shadow-[0_0_15px_rgba(245,158,11,0.3)]');
+                    card.classList.remove('border-slate-700');
+                } else {
+                    card.classList.remove('border-amber-500/80', 'bg-slate-800', 'shadow-[0_0_15px_rgba(245,158,11,0.3)]');
+                    card.classList.add('border-slate-700');
+                }
+            });
+
+            if (ironManSuit) {
+                scene.remove(ironManSuit);
+                createIronManSuit();
+            }
+
+            const theme = SUIT_THEMES[key];
+            document.getElementById('suit-name-tag').innerText = theme.name;
+            logJarvis(`Armor suit configuration loaded: ${theme.name}`);
+        }
+
+        function buildCityEnvironment() {
+            const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
+
+            for (let i = 0; i < 40; i++) {
+                spawnBuilding(buildingGeo, -300 + i * 15);
+            }
+        }
+
+        function spawnBuilding(geo, zPos) {
+            const theme = SUIT_THEMES[currentThemeKey];
+            const isLeft = Math.random() > 0.5;
+            const xPos = isLeft ? -18 - Math.random() * 10 : 18 + Math.random() * 10;
+            const height = 25 + Math.random() * 45;
+
+            const mat = new THREE.MeshStandardMaterial({
+                color: Math.random() > 0.5 ? theme.cityDark : theme.cityLight,
+                roughness: 0.4,
+                metalness: 0.6
+            });
+
+            const building = new THREE.Mesh(geo, mat);
+            building.scale.set(12 + Math.random() * 6, height, 12);
+            building.position.set(xPos, height / 2 - 10, zPos);
+            scene.add(building);
+            buildings.push(building);
+        }
+
+        function createSpeedLines() {
+            const count = 120;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 6);
+
+            for (let i = 0; i < count; i++) {
+                const x = (Math.random() - 0.5) * 40;
+                const y = (Math.random() - 0.5) * 25;
+                const z = -Math.random() * 150;
+
+                positions[i * 6] = x;
+                positions[i * 6 + 1] = y;
+                positions[i * 6 + 2] = z;
+
+                positions[i * 6 + 3] = x;
+                positions[i * 6 + 4] = y;
+                positions[i * 6 + 5] = z - 4; // line tail
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const material = new THREE.LineBasicMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity: 0.35
+            });
+
+            speedLinesGroup = new THREE.LineSegments(geometry, material);
+            scene.add(speedLinesGroup);
+        }
+
+        function spawnGameElements() {
+            if (!gameActive || isPaused) return;
+
+            // Spawn Drone / Obstacle
+            if (Math.random() < 0.04) {
+                const obsGeo = new THREE.OctahedronGeometry(1.2 + Math.random() * 0.5);
+                const obsMat = new THREE.MeshStandardMaterial({
+                    color: 0xef4444,
+                    metalness: 0.8,
+                    roughness: 0.2,
+                    emissive: 0x991b1b
+                });
+                const obstacle = new THREE.Mesh(obsGeo, obsMat);
+                obstacle.position.set(
+                    (Math.random() - 0.5) * FLIGHT_BOUNDS_X * 1.8,
+                    (Math.random() - 0.5) * FLIGHT_BOUNDS_Y * 1.6 + 1,
+                    -180
+                );
+                obstacle.rotation.set(Math.random(), Math.random(), Math.random());
+                scene.add(obstacle);
+                obstacles.push(obstacle);
+            }
+
+            // Spawn Arc Energy Core
+            if (Math.random() < 0.03) {
+                const coreGeo = new THREE.IcosahedronGeometry(0.8, 1);
+                const coreMat = new THREE.MeshStandardMaterial({
+                    color: 0xf59e0b,
+                    emissive: 0xd97706,
+                    metalness: 0.9,
+                    roughness: 0.1
+                });
+                const core = new THREE.Mesh(coreGeo, coreMat);
+                core.position.set(
+                    (Math.random() - 0.5) * FLIGHT_BOUNDS_X * 1.6,
+                    (Math.random() - 0.5) * FLIGHT_BOUNDS_Y * 1.4 + 1,
+                    -180
+                );
+                scene.add(core);
+                energyCores.push(core);
+            }
+        }
+
+        function fireRepulsor() {
+            if (!gameActive || isPaused || repulsorCooldown > 0) return;
+
+            initAudio();
+            playRepulsorSound();
+
+            // Repulsor Blast Projectiles from hands
+            const theme = SUIT_THEMES[currentThemeKey];
+            const projGeo = new THREE.SphereGeometry(0.35, 12, 12);
+            const projMat = new THREE.MeshBasicMaterial({ color: theme.glow });
+
+            handRepulsors.forEach(repulsor => {
+                const proj = new THREE.Mesh(projGeo, projMat);
+                const worldPos = new THREE.Vector3();
+                repulsor.getWorldPosition(worldPos);
+
+                proj.position.copy(worldPos);
+                scene.add(proj);
+                projectiles.push(proj);
+            });
+
+            // Screen Flash Feedback
+            const flash = document.getElementById('flash-overlay');
+            flash.className = 'absolute inset-0 pointer-events-none z-10 repulsor-flash';
+            setTimeout(() => { flash.className = 'absolute inset-0 pointer-events-none z-10'; }, 150);
+
+            // Deplete slight energy for shooting
+            powerEnergy = Math.max(0, powerEnergy - 3);
+            repulsorCooldown = 12; // Frames cooldown
+        }
+
+        function createExplosion(pos, colorHex = 0xef4444) {
+            playExplosionSound();
+            const count = 25;
+            const pGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 3);
+            const velocities = [];
+
+            for (let i = 0; i < count; i++) {
+                positions[i * 3] = pos.x;
+                positions[i * 3 + 1] = pos.y;
+                positions[i * 3 + 2] = pos.z;
+
+                velocities.push(new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.8,
+                    (Math.random() - 0.5) * 0.8,
+                    (Math.random() - 0.5) * 0.8
+                ));
+            }
+
+            pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const pMat = new THREE.PointsMaterial({
+                color: colorHex,
+                size: 0.4,
+                transparent: true,
+                opacity: 1
+            });
+
+            const pSystem = new THREE.Points(pGeo, pMat);
+            scene.add(pSystem);
+            particleSystems.push({ system: pSystem, velocities: velocities, life: 1.0 });
+        }
+
+        function onMouseMove(event) {
+            mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            targetX = mouseX * FLIGHT_BOUNDS_X;
+            targetY = mouseY * FLIGHT_BOUNDS_Y;
+
+            // Move Crosshair UI
+            const crosshair = document.getElementById('crosshair');
+            if (crosshair) {
+                crosshair.style.left = `${event.clientX}px`;
+                crosshair.style.top = `${event.clientY}px`;
+            }
+        }
+
+        function onTouchMove(event) {
+            if (event.touches.length > 0) {
+                const touch = event.touches[0];
+                mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
+                mouseY = -(touch.clientY / window.innerHeight) * 2 + 1;
+                targetX = mouseX * FLIGHT_BOUNDS_X;
+                targetY = mouseY * FLIGHT_BOUNDS_Y;
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameActive && !isPaused) {
+                // Update Distance Score & Cooldowns
+                distanceScore += Math.round(GAME_SPEED * 2);
+                document.getElementById('score-val').innerText = `${distanceScore} m`;
+
+                if (repulsorCooldown > 0) repulsorCooldown--;
+                document.getElementById('repulsor-status').innerText = repulsorCooldown === 0 ? 'READY' : 'CHARGING';
+                document.getElementById('repulsor-status').className = repulsorCooldown === 0 ? 'text-xs font-hud text-cyan-400 font-bold' : 'text-xs font-hud text-amber-400 font-bold';
+
+                // Energy Passive Drain
+                powerEnergy = Math.max(0, powerEnergy - 0.03);
+                document.getElementById('power-bar').style.width = `${powerEnergy}%`;
+                document.getElementById('power-val').innerText = `${Math.round(powerEnergy)}%`;
+
+                if (powerEnergy <= 0) {
+                    takeDamage(100); // Out of power crash
+                }
+
+                // Smooth Iron Man Suit Flight Steering & Banking
+                ironManSuit.position.x += (targetX - ironManSuit.position.x) * 0.08;
+                ironManSuit.position.y += (targetY - ironManSuit.position.y) * 0.08;
+
+                // Roll banking rotation based on horizontal velocity
+                const rollAngle = (targetX - ironManSuit.position.x) * -0.06;
+                const pitchAngle = (targetY - ironManSuit.position.y) * 0.03;
+                ironManSuit.rotation.z = rollAngle;
+                ironManSuit.rotation.x = pitchAngle;
+
+                // Camera follow tilt
+                camera.position.x = ironManSuit.position.x * 0.3;
+                camera.position.y = ironManSuit.position.y * 0.3 + 3;
+
+                // Move Buildings (Endless Loop)
+                buildings.forEach(b => {
+                    b.position.z += GAME_SPEED * 4;
+                    if (b.position.z > 20) {
+                        b.position.z = -300;
+                    }
+                });
+
+                // Move Speed Lines
+                if (speedLinesGroup) {
+                    const pos = speedLinesGroup.geometry.attributes.position.array;
+                    for (let i = 0; i < pos.length / 6; i++) {
+                        pos[i * 6 + 2] += GAME_SPEED * 8;
+                        pos[i * 6 + 5] += GAME_SPEED * 8;
+                        if (pos[i * 6 + 2] > 10) {
+                            pos[i * 6 + 2] = -150;
+                            pos[i * 6 + 5] = -154;
+                        }
+                    }
+                    speedLinesGroup.geometry.attributes.position.needsUpdate = true;
+                }
+
+                // Spawning Logic
+                spawnGameElements();
+
+                // Process Projectiles
+                for (let i = projectiles.length - 1; i >= 0; i--) {
+                    const p = projectiles[i];
+                    p.position.z -= 4;
+
+                    // Collision with Obstacles
+                    for (let j = obstacles.length - 1; j >= 0; j--) {
+                        const obs = obstacles[j];
+                        if (p.position.distanceTo(obs.position) < 2.0) {
+                            createExplosion(obs.position, 0xef4444);
+                            scene.remove(obs);
+                            obstacles.splice(j, 1);
+                            scene.remove(p);
+                            projectiles.splice(i, 1);
+                            logJarvis('Hostile drone neutralized by repulsor fire.');
+                            break;
+                        }
+                    }
+
+                    if (p && p.position.z < -200) {
+                        scene.remove(p);
+                        projectiles.splice(i, 1);
+                    }
+                }
+
+                // Process Obstacles (Drones/Debris)
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    const obs = obstacles[i];
+                    obs.position.z += GAME_SPEED * 3;
+                    obs.rotation.x += 0.02;
+                    obs.rotation.y += 0.03;
+
+                    // Suit Collision Check
+                    if (obs.position.distanceTo(ironManSuit.position) < 1.8) {
+                        createExplosion(obs.position, 0xef4444);
+                        scene.remove(obs);
+                        obstacles.splice(i, 1);
+                        takeDamage(25);
+                        logJarvis('WARNING: Kinetic impact registered on hull!', 'text-red-400');
+                    } else if (obs.position.z > 15) {
+                        scene.remove(obs);
+                        obstacles.splice(i, 1);
+                    }
+                }
+
+                // Process Energy Cores
+                for (let i = energyCores.length - 1; i >= 0; i--) {
+                    const core = energyCores[i];
+                    core.position.z += GAME_SPEED * 3;
+                    core.rotation.y += 0.04;
+
+                    // Collection Check
+                    if (core.position.distanceTo(ironManSuit.position) < 2.0) {
+                        playCoreCollectSound();
+                        createExplosion(core.position, 0xf59e0b);
+                        scene.remove(core);
+                        energyCores.splice(i, 1);
+
+                        // Replenish Energy & Health
+                        powerEnergy = Math.min(100, powerEnergy + 25);
+                        coresCollected++;
+                        logJarvis('Arc energy core absorbed. Reserves restored +25%.', 'text-amber-400');
+                    } else if (core.position.z > 15) {
+                        scene.remove(core);
+                        energyCores.splice(i, 1);
+                    }
+                }
+
+                // Process Particle Systems
+                for (let i = particleSystems.length - 1; i >= 0; i--) {
+                    const ps = particleSystems[i];
+                    const pos = ps.system.geometry.attributes.position.array;
+                    ps.life -= 0.05;
+
+                    for (let j = 0; j < ps.velocities.length; j++) {
+                        pos[j * 3] += ps.velocities[j].x;
+                        pos[j * 3 + 1] += ps.velocities[j].y;
+                        pos[j * 3 + 2] += ps.velocities[j].z;
+                    }
+                    ps.system.geometry.attributes.position.needsUpdate = true;
+                    ps.system.material.opacity = ps.life;
+
+                    if (ps.life <= 0) {
+                        scene.remove(ps.system);
+                        particleSystems.splice(i, 1);
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function takeDamage(amount) {
+            health = Math.max(0, health - amount);
+            document.getElementById('health-bar').style.width = `${health}%`;
+            document.getElementById('health-val').innerText = `${health}%`;
+
+            // Red Damage Screen Flash
+            const flash = document.getElementById('flash-overlay');
+            flash.className = 'absolute inset-0 pointer-events-none z-10 damage-flash';
+            setTimeout(() => { flash.className = 'absolute inset-0 pointer-events-none z-10'; }, 300);
+
+            if (health <= 0) {
+                gameOver();
+            }
+        }
+
+        function startGame() {
+            initAudio();
+            gameActive = true;
+            isPaused = false;
+            health = 100;
+            powerEnergy = 100;
+            distanceScore = 0;
+            coresCollected = 0;
+
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            logJarvis('Tactical HUD locked. Thrusters at full power.');
+        }
+
+        function togglePause() {
+            if (!gameActive) return;
+            isPaused = !isPaused;
+            const btn = document.getElementById('pause-btn');
+            if (isPaused) {
+                btn.innerHTML = '<i class="fa-solid fa-play"></i> RESUME';
+                logJarvis('Flight protocol suspended.', 'text-amber-400');
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-pause"></i> PAUSE';
+                logJarvis('Resuming flight vector.');
+            }
+        }
+
+        function gameOver() {
+            gameActive = false;
+            document.getElementById('final-score').innerText = `${distanceScore} m`;
+            document.getElementById('final-cores').innerText = `${coresCollected}`;
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            logJarvis('CRITICAL ERROR: Armor breach imminent!', 'text-red-500');
+        }
+
+        function restartGame() {
+            // Clear entities
+            obstacles.forEach(o => scene.remove(o));
+            energyCores.forEach(c => scene.remove(c));
+            projectiles.forEach(p => scene.remove(p));
+            obstacles = [];
+            energyCores = [];
+            projectiles = [];
+
+            // Reset UI
+            document.getElementById('health-bar').style.width = '100%';
+            document.getElementById('health-val').innerText = '100%';
+            document.getElementById('power-bar').style.width = '100%';
+            document.getElementById('power-val').innerText = '100%';
+
+            startGame();
+        }
+
+        // Initialize Three.js on page load
+        window.onload = () => {
+            initThreeJS();
+        };
+    </script>
+</body>
+</html>
